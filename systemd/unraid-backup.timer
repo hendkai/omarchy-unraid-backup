@@ -1,0 +1,9 @@
+[Unit]
+Description=Täglich Backup auf Unraid
+[Timer]
+OnCalendar=*-*-* 12:30:00
+OnBootSec=15min
+Persistent=true
+RandomizedDelaySec=10min
+[Install]
+WantedBy=timers.target

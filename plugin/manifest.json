@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "hendkai.unraid-backup",
+  "name": "Unraid Backup",
+  "version": "0.1.0",
+  "author": "hendkai",
+  "license": "MIT",
+  "description": "Backup status in the bar for the rsync-to-Unraid backup job: age of last successful backup, running/failed state, click to back up now.",
+  "tags": ["backup", "rsync", "unraid"],
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "Unraid Backup",
+    "description": "Last backup age and state; left click: back up now, right click: log",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "warnAfterHours": 36, "showAge": true },
+    "schema": [
+      { "key": "warnAfterHours", "type": "integer", "label": "Warn after (hours)",
+        "min": 6, "max": 240, "step": 6, "defaultValue": 36,
+        "description": "Turn red when the last successful backup is older than this." },
+      { "key": "showAge", "type": "boolean", "label": "Show age", "defaultValue": true,
+        "description": "Show the age of the last backup next to the icon." }
+    ]
+  }
+}

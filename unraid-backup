@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# rsync-Backup von $HOME auf einen Unraid/SSH-Host. Schreibt Status für das Bar-Widget.
+# Config: ~/.config/unraid-backup/config  (HOST=, BASE=, KEEP_DAYS=)
+set -uo pipefail
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/unraid-backup"
+. "$CONF/config"
+: "${HOST:?HOST fehlt}" "${BASE:?BASE fehlt}"; KEEP_DAYS=${KEEP_DAYS:-30}
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/unraid-backup"; mkdir -p "$STATE_DIR"
+STATUS="$STATE_DIR/status.json"
+DAY=$(date +%F_%H%M); START=$(date +%s)
+SSH="ssh -o BatchMode=yes -o ConnectTimeout=15"
+
+last_ok() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("last_success_ms",0))' "$STATUS" 2>/dev/null || echo 0; }
+LAST_OK=$(last_ok)
+write() { # state message [last_ok_ms] [duration] [progress_pct]
+  python3 - "$STATUS" "$1" "$2" "${3:-$LAST_OK}" "${4:-0}" "$HOST:$BASE" "${5:--1}" <<'PY'
+import json,sys,time,os
+p,state,msg,ok,dur,target,prog=sys.argv[1:8]
+d={"state":state,"message":msg,"last_success_ms":int(ok),"duration_s":int(dur),
+   "target":target,"progress":int(prog),"started_ms":0,"written_at_ms":int(time.time()*1000)}
+open(p+".tmp","w").write(json.dumps(d)); os.replace(p+".tmp",p)
+PY
+}
+
+if ! $SSH "$HOST" true 2>/dev/null; then write unreachable "Host nicht erreichbar"; echo "Host nicht erreichbar – übersprungen"; exit 0; fi
+write running "läuft" "$LAST_OK" 0 0
+$SSH "$HOST" "mkdir -p '$BASE/current' '$BASE/archive'"
+# --info=progress2 + --no-inc-recursive: Gesamtfortschritt in %; alle ~2 s in status.json
+LASTW=0
+rsync -aHAX --delete --delete-excluded --partial --numeric-ids \
+  --no-inc-recursive --info=progress2 \
+  --exclude-from="$CONF/excludes" --backup --backup-dir="$BASE/archive/$DAY" \
+  -e "$SSH" "$HOME/" "$HOST:$BASE/current/" 2>&1 | stdbuf -oL tr '\r' '\n' | \
+  while IFS= read -r line; do
+    if [[ $line =~ to-chk=([0-9]+)/([0-9]+) ]]; then
+      # Fortschritt nach abgearbeiteten Dateien (rsync-% bezieht sich auf den ganzen Baum)
+      now=$(date +%s); rem=${BASH_REMATCH[1]}; tot=${BASH_REMATCH[2]}
+      if (( now - LASTW >= 2 && tot > 0 )); then
+        LASTW=$now; write running "läuft" "$LAST_OK" 0 $(( (tot - rem) * 100 / tot ))
+      fi
+    elif [[ $line =~ [0-9]+%[[:space:]] ]]; then
+      :
+    elif [[ -n $line && ! $line =~ ^[[:space:]]*[0-9,]+[[:space:]] ]]; then
+      echo "$line"
+    fi
+  done
+rc=${PIPESTATUS[0]}
+DUR=$(( $(date +%s) - START ))
+if [ $rc -eq 0 ] || [ $rc -eq 24 ]; then
+  $SSH "$HOST" "date -Is > '$BASE/.last_success'; find '$BASE/archive' -mindepth 1 -maxdepth 1 -type d -mtime +$KEEP_DAYS -exec rm -rf {} +; rmdir '$BASE/archive/$DAY' 2>/dev/null; true"
+  write ok "OK" "$(date +%s%3N)" "$DUR"; echo "Backup OK ($DAY)"; exit 0
+fi
+write error "rsync Fehler $rc" "$LAST_OK" "$DUR"; echo "rsync Fehler $rc"; exit $rc

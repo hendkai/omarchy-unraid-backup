@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup von $HOME auf Unraid (rsync)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/unraid-backup
+Nice=10
+IOSchedulingClass=idle

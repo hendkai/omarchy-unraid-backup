@@ -1,0 +1,3 @@
+HOST=root@unraid.example
+BASE=/mnt/user/Backups/mylaptop
+KEEP_DAYS=30
